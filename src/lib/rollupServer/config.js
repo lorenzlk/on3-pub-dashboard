@@ -5,11 +5,11 @@ const config = {
   privateKey: (process.env.GOOGLE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
   cacheTtlMs: Number(process.env.CACHE_TTL_MS || 300000),
   tabs: {
-    // Penske workbook currently exposes a single consolidated tab.
+    // On3 workbook currently exposes a single consolidated tab.
     // We read the same tab for weekly + monthly rollup until the sheet is split into dedicated tabs.
-    weekly: { name: "Penske Rollup", headerRow: 2 },
-    monthlyNetwork: { name: "Penske Rollup", headerRow: 2 },
-    monthlyPublishers: { name: "Penske Rollup", headerRow: 2 }
+    weekly: { name: "On3 Rollup", headerRow: 2 },
+    monthlyNetwork: { name: "On3 Rollup", headerRow: 2 },
+    monthlyPublishers: { name: "On3 Rollup", headerRow: 2 }
   }
 };
 

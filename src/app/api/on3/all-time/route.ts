@@ -5,6 +5,9 @@ import { normalizePublisherName } from "@/lib/publishers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const DEFAULT_MONTH = "04";
+const DEFAULT_YEAR = 2026;
+
 const require = createRequire(import.meta.url);
 
 const { validateConfig, config } = require("../../../../lib/rollupServer/config.js") as {
@@ -93,6 +96,9 @@ export async function GET() {
   const tab = config.tabs.weekly;
   const { rows } = await getTabRows(tab.name, { headerRow: tab.headerRow });
 
+  const filters = { month: DEFAULT_MONTH, year: DEFAULT_YEAR };
+  const wantMonthKey = `${filters.year}-${filters.month}`;
+
   const weekly: WeeklyRow[] = [];
   for (const r of rows) {
     const rawWeek = r.week_start ?? r.weekStart ?? r.week ?? r.date ?? "";
@@ -100,6 +106,7 @@ export async function GET() {
     const year = Math.floor(parseNumber(r.year));
     const publisher = normalizePublisherName(String(r.publisher || ""));
     if (!publisher || !weekStart || !year) continue;
+    if (weekStart.slice(0, 7) !== wantMonthKey) continue;
 
     const totalRev = parseNumber(r.total_rev);
     const totalPVs = parseNumber(r.total_pvs);
@@ -198,7 +205,7 @@ export async function GET() {
       : null;
 
   return NextResponse.json({
-    publisher: "All On3 sites",
+    publisher: `All On3 sites (${wantMonthKey})`,
     slug: "combined",
     lastUpdated: new Date().toISOString(),
     weekly: [],

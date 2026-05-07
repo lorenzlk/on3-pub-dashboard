@@ -57,6 +57,73 @@ const { config, validateConfig } = require("../../../lib/rollupServer/config.js"
   validateConfig: () => string[];
 };
 
+const DEFAULT_MONTH = "04";
+const DEFAULT_YEAR = 2026;
+
+function parseNumber(value: unknown): number {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const cleaned = String(value).replace(/[$,%\s,]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatSheetsDateLike(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10);
+    return trimmed;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const epochUtcMs = Date.UTC(1899, 11, 30) + Math.round(value) * 86400000;
+    return new Date(epochUtcMs).toISOString().slice(0, 10);
+  }
+  return String(value);
+}
+
+function parseMonthNum(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const n = Math.floor(raw);
+    return n >= 1 && n <= 12 ? n : null;
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return n >= 1 && n <= 12 ? n : null;
+  }
+  const key = s.toLowerCase();
+  const map: Record<string, number> = {
+    january: 1,
+    february: 2,
+    march: 3,
+    april: 4,
+    may: 5,
+    june: 6,
+    july: 7,
+    august: 8,
+    september: 9,
+    october: 10,
+    november: 11,
+    december: 12,
+  };
+  if (map[key]) return map[key];
+  const maybe = Object.keys(map).find((k) => k.startsWith(key));
+  return maybe ? map[maybe] : null;
+}
+
+function monthKeyFromWeekRow(row: Record<string, unknown>): string | null {
+  const year = Math.floor(parseNumber(row.year));
+  const monthNum = parseMonthNum(row.month);
+  if (year && monthNum) return `${year}-${String(monthNum).padStart(2, "0")}`;
+  const rawWeek = row.week_start ?? row.weekStart ?? row.week ?? row.date ?? "";
+  const iso = formatSheetsDateLike(rawWeek);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso.slice(0, 7);
+  return null;
+}
+
 export async function GET(request: Request) {
   try {
     const missing = validateConfig();
@@ -68,12 +135,12 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const month = searchParams.get("month")?.trim() || null;
+    const month = searchParams.get("month")?.trim() || DEFAULT_MONTH;
     const yearRaw = searchParams.get("year")?.trim();
-    const year = yearRaw ? Number(yearRaw) : null;
+    const year = yearRaw ? Number(yearRaw) : DEFAULT_YEAR;
     const filters = {
       month,
-      year: Number.isFinite(year) ? year : null
+      year: Number.isFinite(year) ? year : DEFAULT_YEAR
     };
 
     const [monthlyNetwork, monthlyPublishers, weekly] = await Promise.all([
@@ -98,11 +165,13 @@ export async function GET(request: Request) {
     const publisherTotals = metrics.buildPublisherTotalsAllTime(
       monthlyPublishers.rows
     );
-    const weeklyTrend = metrics.buildWeeklyTrend(weekly.rows, 24);
-    const weeklyByPublisher = metrics.buildWeeklyByPublisher(
-      weekly.rows,
-      12
+    const wantMonthKey = `${filters.year}-${String(filters.month).padStart(2, "0")}`;
+    const weeklyFiltered = (weekly.rows as Record<string, unknown>[]).filter(
+      (r) => monthKeyFromWeekRow(r) === wantMonthKey
     );
+
+    const weeklyTrend = metrics.buildWeeklyTrend(weeklyFiltered, 24);
+    const weeklyByPublisher = metrics.buildWeeklyByPublisher(weeklyFiltered, 12);
     const publisherMoM = metrics.buildPublisherMoMComparison(
       monthlyPublishers.rows,
       filters

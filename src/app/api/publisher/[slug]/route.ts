@@ -5,6 +5,9 @@ import { normalizePublisherName, publisherSlugMatches } from "@/lib/publishers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const DEFAULT_MONTH = "04";
+const DEFAULT_YEAR = 2026;
+
 const require = createRequire(import.meta.url);
 
 const { validateConfig, config } = require("../../../../lib/rollupServer/config.js") as {
@@ -147,7 +150,7 @@ function ctrPercentFromInviews(clicks: number, inViews: number): number {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const missing = validateConfig();
@@ -177,6 +180,12 @@ export async function GET(
       { status: 404 }
     );
   }
+
+  const { searchParams } = new URL(req.url);
+  const monthParam = searchParams.get("month")?.trim() || DEFAULT_MONTH;
+  const yearParamRaw = searchParams.get("year")?.trim();
+  const yearParam = yearParamRaw ? Number(yearParamRaw) : DEFAULT_YEAR;
+  const wantMonthKey = `${yearParam}-${String(monthParam).padStart(2, "0")}`;
 
   const weekly: WeeklyRow[] = matched
     .map((r) => {
@@ -232,6 +241,7 @@ export async function GET(
       };
     })
     .filter((r) => r.weekStart && r.year)
+    .filter((r) => r.weekStart.slice(0, 7) === wantMonthKey)
     .sort((a, b) => String(a.weekStart).localeCompare(String(b.weekStart)));
 
   // Monthly aggregates from weekly rows (publisher-only).
