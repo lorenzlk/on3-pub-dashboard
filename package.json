@@ -11,7 +11,7 @@
     "diag": "node scripts/diag-node-env.mjs",
     "dev": "sh scripts/dev.sh",
     "build": "next build",
-    "start": "sh -c 'next start -H 0.0.0.0 -p ${PORT:-3000}'",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-3000}",
     "lint": "npx tsc --noEmit && next lint",
     "verify:metrics": "node scripts/verify-metrics-formulas.cjs",
     "format": "npx biome format --write"
