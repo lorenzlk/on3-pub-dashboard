@@ -1,0 +1,16 @@
+# Monorepo: set Railway Root Directory to lori-dashboard-web/executive-dashboard
+# Standalone: https://github.com/lorenzlk/mulanetworkreporting-dashboard — Root Directory empty
+#
+# Use npm + package-lock.json only. Do not add bun.lock — Railpack would run
+# `bun install --frozen-lockfile` and fail when lockfile drifts from package.json.
+#
+# Variables: see env.example (GOOGLE_* , optional CACHE_TTL_MS). Railway sets PORT.
+
+[build]
+buildCommand = "npm run sync-rollup-lib && npm run build"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/api/healthz"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
