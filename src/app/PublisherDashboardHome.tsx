@@ -25,20 +25,6 @@ export function PublisherDashboardHome() {
 
             <div className="flex-1" />
 
-            <div className="hidden w-[32rem] max-w-[44vw] items-center gap-2 rounded-md border border-zinc-800/70 bg-zinc-950/40 px-3 py-2 shadow-inner shadow-black/30 sm:flex">
-              <input
-                className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
-                placeholder="Search publishers"
-                aria-label="Search publishers"
-              />
-              <button
-                type="button"
-                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
-              >
-                Search
-              </button>
-            </div>
-
             <div className="flex items-center gap-2">
               <button
                 type="button"
