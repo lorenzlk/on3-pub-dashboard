@@ -9,18 +9,49 @@ export function PublisherDashboardHome() {
 
   return (
     <div className="min-h-screen bg-zinc-900">
-      <header className="sticky top-0 z-50 border-b border-zinc-800/80 bg-zinc-900/85 backdrop-blur-xl">
+      <header className="sticky top-0 z-50 border-b border-zinc-800/70 bg-[#111418]/95 backdrop-blur-xl">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-16 flex-col gap-2 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:py-3">
-            <div className="min-w-0">
+          <div className="flex min-h-16 items-center gap-4 py-3">
+            <div className="flex items-center gap-3">
               <div className="flex items-baseline gap-2">
-                <span className="text-sm font-semibold tracking-tight text-gradient">
-                  On3.com
+                <span className="text-[15px] font-extrabold tracking-tight text-white">
+                  On3
                 </span>
-                <h1 className="text-lg font-bold tracking-tight text-white">
-                  Publisher network
-                </h1>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-zinc-500">
+                  Publisher dashboard
+                </span>
               </div>
+            </div>
+
+            <div className="flex-1" />
+
+            <div className="hidden w-[32rem] max-w-[44vw] items-center gap-2 rounded-md border border-zinc-800/70 bg-zinc-950/40 px-3 py-2 shadow-inner shadow-black/30 sm:flex">
+              <input
+                className="w-full bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+                placeholder="Search publishers"
+                aria-label="Search publishers"
+              />
+              <button
+                type="button"
+                className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+              >
+                Search
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-md bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-zinc-950"
+              >
+                Join
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-zinc-800/70 bg-zinc-950/20 px-3 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-950/35"
+              >
+                Log in
+              </button>
             </div>
           </div>
         </div>
