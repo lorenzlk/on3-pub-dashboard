@@ -603,7 +603,7 @@ export function On3PublisherDashboard({
               {sites.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
-                    No site rows for this YTD.
+                    No site rows for this month.
                   </td>
                 </tr>
               ) : (
@@ -649,9 +649,6 @@ export function On3PublisherDashboard({
             ) : null}
           </table>
         </div>
-        <p className="text-center text-xs italic text-zinc-600">
-          Additional sites appear here as they onboard.
-        </p>
       </section>
 
       <footer className="flex flex-col gap-2 border-t border-zinc-800/70 pt-6 text-xs text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
