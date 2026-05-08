@@ -4,7 +4,7 @@ import { formatCurrency, formatNumber, formatPercentChart } from "@/lib/data";
 import Link from "next/link";
 import { Copy, ExternalLink, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type QuickViewPayload = {
   publisher: string;
@@ -117,20 +117,6 @@ export function PublisherQuickViewModal({
       document.body.style.overflow = prev;
     };
   }, [open, onClose]);
-
-  const channelSums = useMemo(() => {
-    const w = data?.weekly ?? [];
-    return w.reduce(
-      (acc, row) => ({
-        affiliate: acc.affiliate + (row.affiliateRev ?? 0),
-        email: acc.email + (row.emailRev ?? 0),
-        kvp: acc.kvp + (row.kvpRev ?? 0),
-        video: acc.video + (row.videoRev ?? 0),
-        native: acc.native + (row.nativeRev ?? 0),
-      }),
-      { affiliate: 0, email: 0, kvp: 0, video: 0, native: 0 }
-    );
-  }, [data?.weekly]);
 
   const handleCopy = useCallback(async () => {
     if (!slug || typeof window === "undefined") return;
@@ -252,29 +238,6 @@ export function PublisherQuickViewModal({
                   <StatBlock label="Commerce clicks" value={formatNumber(k.commerceClicks)} />
                   <StatBlock label="Affiliate CTR" value={formatPercentChart(k.affiliateCtr, 2)} />
                   <StatBlock label="Article CTR" value={formatPercentChart(k.articleCtr, 2)} />
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Channel split (lifetime)
-                </h3>
-                <div className="flex flex-wrap gap-2 rounded-xl border border-zinc-800/90 bg-zinc-900/40 p-4 text-sm text-zinc-200">
-                  <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 tabular-nums">
-                    Aff: {formatCurrency(channelSums.affiliate)}
-                  </span>
-                  <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 tabular-nums">
-                    Email: {formatCurrency(channelSums.email)}
-                  </span>
-                  <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 tabular-nums">
-                    KVP: {formatCurrency(channelSums.kvp)}
-                  </span>
-                  <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 tabular-nums">
-                    Video: {formatCurrency(channelSums.video)}
-                  </span>
-                  <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 tabular-nums">
-                    Native: {formatCurrency(channelSums.native)}
-                  </span>
                 </div>
               </section>
 

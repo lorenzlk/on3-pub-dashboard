@@ -12,7 +12,6 @@ export function PublisherDashboardHome() {
   const [quickViewSlug, setQuickViewSlug] = useState<string | null>(null);
   const summary = useOn3Summary();
   const hasData = summary.data?.current != null;
-
   return (
     <div className="min-h-screen bg-zinc-900">
       <header className="sticky top-0 z-50 border-b border-zinc-800/70 bg-[#111418]/95 backdrop-blur-xl">
@@ -25,10 +24,11 @@ export function PublisherDashboardHome() {
               </span>
             </div>
             <On3DashboardHeaderChrome
-              rangeLabel={summary.data?.rangeLabel}
-              ytdYear={summary.data?.ytdYear}
+              data={summary.data}
               loading={summary.loading}
               hasData={hasData}
+              onSelectYear={summary.setYear}
+              onSelectMonth={summary.selectMonth}
             />
           </div>
         </div>

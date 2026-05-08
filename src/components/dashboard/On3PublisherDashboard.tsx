@@ -2,7 +2,7 @@
 
 import { formatCurrency, formatCurrencyFull, formatNumber, formatPercentChart } from "@/lib/data";
 import { cn } from "@/lib/utils";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 export type On3SummarySeriesPoint = {
   weekStart: string;
@@ -21,14 +21,12 @@ export type On3SummarySite = {
   clicks: number;
 };
 
-export type On3SummaryDeltas = {
-  totalRevRatio: number | null;
-  vrpmRatio: number | null;
-  inViewsRatio: number | null;
-  commerceClicksRatio: number | null;
-  incrementalRatio: number | null;
-  affiliateCtrPp: number;
-  articleCtrPp: number;
+export type On3SummaryChannels = {
+  affiliate: number;
+  email: number;
+  kvp: number;
+  video: number;
+  native: number;
 };
 
 export type On3SummaryCurrent = {
@@ -48,17 +46,18 @@ export type On3SummaryCurrent = {
 };
 
 export type On3SummaryPayload = {
-  mode?: "ytd";
-  ytdYear?: number;
-  priorYear?: number;
+  mode?: "monthly";
+  selectedYear: number | null;
+  selectedMonth: number | null;
+  availableYears: number[];
+  monthsWithData: number[];
   windowDays: number;
   windowWeeks: number;
   rangeLabel: string;
   series: On3SummarySeriesPoint[];
   current: On3SummaryCurrent | null;
-  prior: { totals: Partial<On3SummaryCurrent["totals"]>; weekKeys: string[] } | null;
-  deltas: On3SummaryDeltas | null;
   sites: On3SummarySite[];
+  channels?: On3SummaryChannels | null;
   lastUpdated: string;
   error?: string;
 };
@@ -68,21 +67,33 @@ export type On3SummaryController = {
   loading: boolean;
   error: string | null;
   reload: () => void;
+  setYearMonth: (year: number, month: number) => void;
+  setYear: (year: number) => void;
+  /** Uses latest loaded `selectedYear` so month clicks stay aligned after a year change. */
+  selectMonth: (month: number) => void;
 };
 
-const DELTA_SUFFIX = "vs prior YTD";
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
-export function useOn3Summary(year?: number): On3SummaryController {
+export function useOn3Summary(): On3SummaryController {
+  const [req, setReq] = useState<{ y?: number; m?: number }>({});
   const [data, setData] = useState<On3SummaryPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const dataRef = useRef<On3SummaryPayload | null>(null);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const q = year != null && year >= 2000 && year <= 2100 ? `?year=${year}` : "";
-      const r = await fetch(`/api/on3/summary${q}`, { cache: "no-store" });
+      const params = new URLSearchParams();
+      if (req.y !== undefined) params.set("year", String(req.y));
+      if (req.m !== undefined) params.set("month", String(req.m));
+      const qs = params.toString();
+      const r = await fetch(`/api/on3/summary${qs ? `?${qs}` : ""}`, { cache: "no-store" });
       const j = (await r.json()) as On3SummaryPayload & { error?: string };
       if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
       setData(j);
@@ -92,34 +103,50 @@ export function useOn3Summary(year?: number): On3SummaryController {
     } finally {
       setLoading(false);
     }
-  }, [year]);
+  }, [req]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  return { data, loading, error, reload: load };
+  const setYearMonth = useCallback((year: number, month: number) => {
+    setReq({ y: year, m: month });
+  }, []);
+
+  const setYear = useCallback((year: number) => {
+    setReq({ y: year });
+  }, []);
+
+  const selectMonth = useCallback((month: number) => {
+    const y = dataRef.current?.selectedYear;
+    if (y != null) setReq({ y, m: month });
+  }, []);
+
+  return { data, loading, error, reload: load, setYearMonth, setYear, selectMonth };
 }
 
 export function On3DashboardHeaderChrome({
-  rangeLabel,
-  ytdYear,
+  data,
   loading,
   hasData,
+  onSelectYear,
+  onSelectMonth,
 }: {
-  rangeLabel: string | null | undefined;
-  ytdYear: number | null | undefined;
+  data: On3SummaryPayload | null;
   loading: boolean;
   hasData: boolean;
+  onSelectYear: (year: number) => void;
+  onSelectMonth: (month: number) => void;
 }) {
+  const rangeLabel = data?.rangeLabel;
+  const selY = data?.selectedYear ?? null;
+  const selM = data?.selectedMonth ?? null;
+  const years = data?.availableYears ?? [];
+  const monthsWithData = new Set(data?.monthsWithData ?? []);
+
   return (
-    <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
-        {ytdYear != null ? (
-          <span className="rounded-full border border-teal-400/80 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-300">
-            {ytdYear} YTD
-          </span>
-        ) : null}
+    <div className="flex max-w-full flex-col items-stretch gap-3 sm:items-end">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <p className="text-sm text-zinc-400 tabular-nums">
           {rangeLabel ? rangeLabel : loading && !hasData ? "Loading…" : "—"}
         </p>
@@ -129,6 +156,58 @@ export function On3DashboardHeaderChrome({
             aria-hidden
           />
         ) : null}
+      </div>
+      {years.length > 1 ? (
+        <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Year">
+          {years.map((y) => (
+            <button
+              key={y}
+              type="button"
+              onClick={() => onSelectYear(y)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+                selY === y
+                  ? "border-teal-400/80 bg-teal-500/10 text-teal-300"
+                  : "border-zinc-700 bg-zinc-950/40 text-zinc-400 hover:border-zinc-600"
+              )}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div
+        className="flex max-w-full flex-wrap justify-end gap-1.5 overflow-x-auto pb-0.5 sm:max-w-[min(100%,42rem)]"
+        role="tablist"
+        aria-label="Month"
+      >
+        {MONTH_LABELS.map((label, i) => {
+          const m = i + 1;
+          const has = monthsWithData.has(m);
+          const active = selM === m && selY != null && has;
+          return (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              disabled={!has}
+              onClick={() => has && onSelectMonth(m)}
+              className={cn(
+                "shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors",
+                !has && "cursor-not-allowed border-zinc-800/80 bg-zinc-950/20 text-zinc-600 opacity-50",
+                has &&
+                  active &&
+                  "border-teal-400/80 bg-teal-500/10 text-teal-300",
+                has &&
+                  !active &&
+                  "border-zinc-700 bg-zinc-950/40 text-zinc-400 hover:border-zinc-600"
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -338,50 +417,6 @@ function MiniSparklineConditional({ values, invert }: { values: number[]; invert
   );
 }
 
-function formatPctRatio(r: number | null): string {
-  if (r === null || !Number.isFinite(r)) return "—";
-  const pct = r * 100;
-  const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct.toFixed(1)}%`;
-}
-
-function DeltaLine({
-  ratio,
-  suffix = DELTA_SUFFIX,
-  pp,
-}: {
-  ratio?: number | null;
-  suffix?: string;
-  pp?: number;
-}) {
-  if (pp !== undefined && Number.isFinite(pp)) {
-    const flat = Math.abs(pp) < 0.03;
-    if (flat) {
-      return <p className="text-xs font-medium text-zinc-500">flat {suffix}</p>;
-    }
-    const pos = pp > 0;
-    return (
-      <p className={cn("text-xs font-semibold tabular-nums", pos ? "text-teal-400" : "text-red-400")}>
-        {pos ? "+" : ""}
-        {pp.toFixed(2)}pp {suffix}
-      </p>
-    );
-  }
-  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) {
-    return <p className="text-xs text-zinc-500">— {suffix}</p>;
-  }
-  const flat = Math.abs(ratio) < 0.002;
-  if (flat) {
-    return <p className="text-xs font-medium text-zinc-500">flat {suffix}</p>;
-  }
-  const pos = ratio > 0;
-  return (
-    <p className={cn("text-xs font-semibold tabular-nums", pos ? "text-teal-400" : "text-red-400")}>
-      {formatPctRatio(ratio)} {suffix}
-    </p>
-  );
-}
-
 function formatCompactInt(n: number): string {
   if (!Number.isFinite(n)) return "—";
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -399,7 +434,6 @@ export function On3PublisherDashboard({
   const { data, loading, error: err } = summary;
 
   const cur = data?.current;
-  const deltas = data?.deltas;
   const series = data?.series ?? [];
   const sites = data?.sites ?? [];
 
@@ -429,12 +463,15 @@ export function On3PublisherDashboard({
   if (!cur) {
     return (
       <p className="py-8 text-center text-sm text-zinc-500">
-        {data?.rangeLabel?.startsWith("No ") ? data.rangeLabel : "No rollup data for year-to-date."}
+        {data?.rangeLabel && (data.rangeLabel.startsWith("No ") || data.rangeLabel === "—")
+          ? data.rangeLabel
+          : "No rollup data for this month."}
       </p>
     );
   }
 
   const t = cur.totals;
+  const ch = data?.channels;
   const lastUpdatedFmt = data?.lastUpdated
     ? new Date(data.lastUpdated).toLocaleString("en-US", {
         month: "short",
@@ -470,7 +507,6 @@ export function On3PublisherDashboard({
             <p className="text-4xl font-bold tracking-tight text-white tabular-nums sm:text-5xl">
               {formatCurrencyFull(t.totalRev)}
             </p>
-            <DeltaLine ratio={deltas?.totalRevRatio ?? null} />
           </div>
           <HeroRevenueChart values={revSeries} lineColor="#2dd4bf" />
           <div className="flex justify-between text-[10px] uppercase tracking-wide text-zinc-600">
@@ -480,12 +516,34 @@ export function On3PublisherDashboard({
         </div>
       </div>
 
+      {ch ? (
+        <section className="space-y-3">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Channel split</h2>
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-4 ring-1 ring-zinc-800/50">
+            <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 text-sm tabular-nums text-zinc-200">
+              Aff: {formatCurrency(ch.affiliate)}
+            </span>
+            <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 text-sm tabular-nums text-zinc-200">
+              Email: {formatCurrency(ch.email)}
+            </span>
+            <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 text-sm tabular-nums text-zinc-200">
+              KVP: {formatCurrency(ch.kvp)}
+            </span>
+            <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 text-sm tabular-nums text-zinc-200">
+              Video: {formatCurrency(ch.video)}
+            </span>
+            <span className="rounded-lg bg-zinc-800/80 px-3 py-1.5 text-sm tabular-nums text-zinc-200">
+              Native: {formatCurrency(ch.native)}
+            </span>
+          </div>
+        </section>
+      ) : null}
+
       {/* Secondary metrics */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/50 p-5 ring-1 ring-zinc-800/50">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Viewable RPM</p>
           <p className="mt-2 text-2xl font-bold text-white tabular-nums">{formatCurrencyFull(t.vrpm)}</p>
-          <DeltaLine ratio={deltas?.vrpmRatio ?? null} />
           <div className="mt-3">
             <MiniSparklineTeal values={vrpmSeries} />
           </div>
@@ -493,7 +551,6 @@ export function On3PublisherDashboard({
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/50 p-5 ring-1 ring-zinc-800/50">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">In-view impressions</p>
           <p className="mt-2 text-2xl font-bold text-white tabular-nums">{formatCompactInt(t.smartScrollViews)}</p>
-          <DeltaLine ratio={deltas?.inViewsRatio ?? null} />
           <div className="mt-3">
             <MiniSparklineTeal values={viewsSeries} />
           </div>
@@ -501,7 +558,6 @@ export function On3PublisherDashboard({
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/50 p-5 ring-1 ring-zinc-800/50">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Commerce clicks</p>
           <p className="mt-2 text-2xl font-bold text-white tabular-nums">{formatNumber(t.commerceClicks)}</p>
-          <DeltaLine ratio={deltas?.commerceClicksRatio ?? null} />
           <div className="mt-3">
             <MiniSparklineConditional values={clicksSeries} />
           </div>
@@ -513,17 +569,14 @@ export function On3PublisherDashboard({
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Incr. impressions</p>
           <p className="mt-2 text-xl font-bold text-white tabular-nums">{formatCompactInt(t.incrementalImpressions)}</p>
-          <DeltaLine ratio={deltas?.incrementalRatio ?? null} />
         </div>
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Affiliate CTR</p>
           <p className="mt-2 text-xl font-bold text-white tabular-nums">{formatPercentChart(t.affiliateCtr, 2)}</p>
-          <DeltaLine pp={deltas?.affiliateCtrPp ?? 0} />
         </div>
         <div className="rounded-2xl border border-zinc-800/90 bg-zinc-900/40 p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Article CTR</p>
           <p className="mt-2 text-xl font-bold text-white tabular-nums">{formatPercentChart(t.articleCtr, 2)}</p>
-          <DeltaLine pp={deltas?.articleCtrPp ?? 0} />
         </div>
       </div>
 

@@ -65,6 +65,10 @@ function shortDateLabel(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+function monthName(month: number): string {
+  return new Date(Date.UTC(2000, month - 1, 1)).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+}
+
 /** Inclusive span in days for weekly buckets: first week start through end of last week (+7). */
 function spanDaysForWeekKeys(keys: string[]): number {
   if (keys.length === 0) return 1;
@@ -82,6 +86,11 @@ type RowAgg = {
   affiliateClicks: number;
   nextpageClicks: number;
   incrementalImpressions: number;
+  affiliateRev: number;
+  emailRev: number;
+  kvpRev: number;
+  videoRev: number;
+  nativeRev: number;
 };
 
 function emptyAgg(): RowAgg {
@@ -92,6 +101,11 @@ function emptyAgg(): RowAgg {
     affiliateClicks: 0,
     nextpageClicks: 0,
     incrementalImpressions: 0,
+    affiliateRev: 0,
+    emailRev: 0,
+    kvpRev: 0,
+    videoRev: 0,
+    nativeRev: 0,
   };
 }
 
@@ -106,6 +120,11 @@ function addRow(a: RowAgg, r: Record<string, unknown>): RowAgg {
     affiliateClicks: a.affiliateClicks + parseNumber(r.affiliate_clicks),
     nextpageClicks: a.nextpageClicks + parseNumber(r.nextpage_clicks),
     incrementalImpressions: a.incrementalImpressions + parseNumber(r.nextpage_clicks),
+    affiliateRev: a.affiliateRev + parseNumber(r.affiliate_rev),
+    emailRev: a.emailRev + parseNumber(r.email_rev),
+    kvpRev: a.kvpRev + parseNumber(r.kvp_rev),
+    videoRev: a.videoRev + parseNumber(r.video_rev),
+    nativeRev: a.nativeRev + parseNumber(r.native_rev),
   };
 }
 
@@ -121,14 +140,28 @@ function rollUpMetrics(a: RowAgg) {
   };
 }
 
-function ratioDelta(cur: number, prev: number): number | null {
-  if (!Number.isFinite(prev) || prev === 0) return null;
-  return (cur - prev) / prev;
+function yearsWithData(sortedWeeks: string[]): number[] {
+  const set = new Set<number>();
+  for (const w of sortedWeeks) {
+    if (w.length >= 4 && /^\d{4}/.test(w)) set.add(Number(w.slice(0, 4)));
+  }
+  return [...set].sort((a, b) => a - b);
 }
 
-function weeksInCalendarYear(sortedWeeks: string[], year: number): string[] {
-  const y = String(year);
-  return sortedWeeks.filter((w) => w.length >= 4 && w.slice(0, 4) === y);
+function monthsWithDataInYear(sortedWeeks: string[], year: number): number[] {
+  const set = new Set<number>();
+  const y = `${year}-`;
+  for (const w of sortedWeeks) {
+    if (!w.startsWith(y) || w.length < 7) continue;
+    const m = Number(w.slice(5, 7));
+    if (m >= 1 && m <= 12) set.add(m);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+function weeksInMonth(sortedWeeks: string[], year: number, month: number): string[] {
+  const prefix = `${year}-${String(month).padStart(2, "0")}-`;
+  return sortedWeeks.filter((w) => w.startsWith(prefix));
 }
 
 export async function GET(req: Request) {
@@ -138,19 +171,13 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const yearRaw = searchParams.get("year")?.trim();
-  let ytdYear = new Date().getUTCFullYear();
-  if (yearRaw && /^\d{4}$/.test(yearRaw)) {
-    ytdYear = Number(yearRaw);
-  }
-  const priorYear = ytdYear - 1;
+  const yearParam = searchParams.get("year")?.trim();
+  const monthParam = searchParams.get("month")?.trim();
 
   const tab = config.tabs.weekly;
   const { rows } = await getTabRows(tab.name, { headerRow: tab.headerRow });
 
-  /** weekStart -> aggregate across publishers */
   const byWeek = new Map<string, RowAgg>();
-  /** weekStart -> publisher -> aggregate */
   const byWeekPub = new Map<string, Map<string, RowAgg>>();
 
   for (const r of rows) {
@@ -169,41 +196,70 @@ export async function GET(req: Request) {
   }
 
   const sortedWeeks = [...byWeek.keys()].sort((a, b) => a.localeCompare(b));
-  if (sortedWeeks.length === 0) {
-    return NextResponse.json({
-      mode: "ytd",
-      ytdYear,
-      priorYear,
+  const availableYears = yearsWithData(sortedWeeks);
+
+  const emptyPayload = (rangeLabel: string) =>
+    NextResponse.json({
+      mode: "monthly",
+      selectedYear: null as number | null,
+      selectedMonth: null as number | null,
+      availableYears,
+      monthsWithData: [] as number[],
       windowDays: 0,
       windowWeeks: 0,
-      rangeLabel: "—",
+      rangeLabel,
       series: [],
       current: null,
-      prior: null,
-      deltas: null,
       sites: [],
+      channels: null,
       lastUpdated: new Date().toISOString(),
     });
+
+  if (sortedWeeks.length === 0 || availableYears.length === 0) {
+    return emptyPayload("—");
   }
 
-  const currentKeys = weeksInCalendarYear(sortedWeeks, ytdYear);
-  const weeksPriorYear = weeksInCalendarYear(sortedWeeks, priorYear);
-  const n = currentKeys.length;
-  const priorKeys = weeksPriorYear.slice(0, n);
+  let selectedYear: number;
+  if (yearParam && /^\d{4}$/.test(yearParam)) {
+    const y = Number(yearParam);
+    selectedYear = availableYears.includes(y) ? y : availableYears[availableYears.length - 1]!;
+  } else {
+    const fallback = new Date().getUTCFullYear();
+    selectedYear = availableYears.includes(fallback)
+      ? fallback
+      : availableYears[availableYears.length - 1]!;
+  }
+
+  const monthsInYear = monthsWithDataInYear(sortedWeeks, selectedYear);
+
+  let selectedMonth: number;
+  if (monthParam && /^\d{1,2}$/.test(monthParam)) {
+    const m = Number(monthParam);
+    selectedMonth = monthsInYear.includes(m) ? m : monthsInYear[monthsInYear.length - 1]!;
+  } else {
+    selectedMonth = monthsInYear[monthsInYear.length - 1]!;
+  }
+
+  if (monthsInYear.length === 0) {
+    return emptyPayload(`No data for ${selectedYear}`);
+  }
+
+  const currentKeys = weeksInMonth(sortedWeeks, selectedYear, selectedMonth);
 
   if (currentKeys.length === 0) {
     return NextResponse.json({
-      mode: "ytd",
-      ytdYear,
-      priorYear,
+      mode: "monthly",
+      selectedYear,
+      selectedMonth,
+      availableYears,
+      monthsWithData: monthsInYear,
       windowDays: 0,
       windowWeeks: 0,
-      rangeLabel: `No ${ytdYear} weeks in rollup yet`,
+      rangeLabel: `No weeks in ${monthName(selectedMonth)} ${selectedYear}`,
       series: [],
       current: null,
-      prior: null,
-      deltas: null,
       sites: [],
+      channels: { affiliate: 0, email: 0, kvp: 0, video: 0, native: 0 },
       lastUpdated: new Date().toISOString(),
     });
   }
@@ -219,21 +275,24 @@ export async function GET(req: Request) {
       out.affiliateClicks += a.affiliateClicks;
       out.nextpageClicks += a.nextpageClicks;
       out.incrementalImpressions += a.incrementalImpressions;
+      out.affiliateRev += a.affiliateRev;
+      out.emailRev += a.emailRev;
+      out.kvpRev += a.kvpRev;
+      out.videoRev += a.videoRev;
+      out.nativeRev += a.nativeRev;
     }
     return out;
   };
 
   const curAgg = sumWeeks(currentKeys);
-  const prevAgg = sumWeeks(priorKeys);
   const cur = rollUpMetrics(curAgg);
-  const prev = rollUpMetrics(prevAgg);
 
   const spanDays = spanDaysForWeekKeys(currentKeys);
   const dailyAvgRev = cur.totalRev / spanDays;
 
   const firstWeek = currentKeys[0]!;
   const lastWeek = currentKeys[currentKeys.length - 1]!;
-  const rangeLabel = `${shortDateLabel(firstWeek)} – ${shortDateLabel(lastWeek)} · ${ytdYear} YTD`;
+  const rangeLabel = `${shortDateLabel(firstWeek)} – ${shortDateLabel(lastWeek)} · ${monthName(selectedMonth)} ${selectedYear}`;
 
   const series = currentKeys.map((wk) => {
     const a = byWeek.get(wk)!;
@@ -247,17 +306,6 @@ export async function GET(req: Request) {
     };
   });
 
-  const deltas = {
-    totalRevRatio: ratioDelta(cur.totalRev, prev.totalRev),
-    vrpmRatio: ratioDelta(cur.vrpm, prev.vrpm),
-    inViewsRatio: ratioDelta(cur.smartScrollViews, prev.smartScrollViews),
-    commerceClicksRatio: ratioDelta(cur.affiliateClicks, prev.affiliateClicks),
-    incrementalRatio: ratioDelta(cur.incrementalImpressions, prev.incrementalImpressions),
-    affiliateCtrPp: cur.affiliateCtr - prev.affiliateCtr,
-    articleCtrPp: cur.articleCtr - prev.articleCtr,
-  };
-
-  /** Sites: per-publisher totals in YTD window */
   const siteMap = new Map<string, RowAgg>();
   for (const wk of currentKeys) {
     const pm = byWeekPub.get(wk);
@@ -271,6 +319,11 @@ export async function GET(req: Request) {
         affiliateClicks: acc.affiliateClicks + a.affiliateClicks,
         nextpageClicks: acc.nextpageClicks + a.nextpageClicks,
         incrementalImpressions: acc.incrementalImpressions + a.incrementalImpressions,
+        affiliateRev: acc.affiliateRev + a.affiliateRev,
+        emailRev: acc.emailRev + a.emailRev,
+        kvpRev: acc.kvpRev + a.kvpRev,
+        videoRev: acc.videoRev + a.videoRev,
+        nativeRev: acc.nativeRev + a.nativeRev,
       });
     }
   }
@@ -292,9 +345,11 @@ export async function GET(req: Request) {
   return NextResponse.json({
     publisher: "All On3 sites",
     slug: "combined",
-    mode: "ytd",
-    ytdYear,
-    priorYear,
+    mode: "monthly",
+    selectedYear,
+    selectedMonth,
+    availableYears,
+    monthsWithData: monthsInYear,
     windowDays: spanDays,
     windowWeeks: currentKeys.length,
     rangeLabel,
@@ -315,20 +370,14 @@ export async function GET(req: Request) {
       weekStart: firstWeek,
       throughWeek: lastWeek,
     },
-    prior: {
-      totals: {
-        totalRev: prev.totalRev,
-        vrpm: prev.vrpm,
-        smartScrollViews: prev.smartScrollViews,
-        commerceClicks: prev.affiliateClicks,
-        incrementalImpressions: prev.incrementalImpressions,
-        affiliateCtr: prev.affiliateCtr,
-        articleCtr: prev.articleCtr,
-      },
-      weekKeys: priorKeys,
-    },
-    deltas,
     sites,
+    channels: {
+      affiliate: curAgg.affiliateRev,
+      email: curAgg.emailRev,
+      kvp: curAgg.kvpRev,
+      video: curAgg.videoRev,
+      native: curAgg.nativeRev,
+    },
     lastUpdated: new Date().toISOString(),
   });
 }
