@@ -10,7 +10,7 @@ import { useState } from "react";
 
 export function PublisherDashboardHome() {
   const [quickViewSlug, setQuickViewSlug] = useState<string | null>(null);
-  const summary = useOn3Summary(22);
+  const summary = useOn3Summary();
   const hasData = summary.data?.current != null;
 
   return (
@@ -25,9 +25,8 @@ export function PublisherDashboardHome() {
               </span>
             </div>
             <On3DashboardHeaderChrome
-              days={summary.days}
-              setDays={summary.setDays}
               rangeLabel={summary.data?.rangeLabel}
+              ytdYear={summary.data?.ytdYear}
               loading={summary.loading}
               hasData={hasData}
             />

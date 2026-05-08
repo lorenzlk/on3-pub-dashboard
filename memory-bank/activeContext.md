@@ -15,7 +15,7 @@
 - **Publisher leaderboard** (**`On3PublisherLeaderboard`** + **`GET /api/publishers/leaderboard`**): retained for **`/p/[slug]`** and exec surfaces if needed; **home `/`** site list is the **`On3PublisherDashboard`** table (not the card grid).
 - **Publisher quick-view** (**`mb-088`**, **`mb-090`**): **`PublisherQuickViewModal`** — large-type metrics and channel pills; opened from **home site table rows** or **`/p/[slug]`**.
 - **CTR semantics** (**`mb-084`**): Affiliate and article CTR in `/api/publisher/[slug]` are **recomputed** as clicks ÷ **in-view impressions** (Smart Scroll views), not PV-based sheet columns.
-- **Home UX** (**`mb-095`**, **`mb-096`**): **`/`** uses **`useOn3Summary`**; sticky header shows range + 7d/22d/30d pills (**`On3DashboardHeaderChrome`**); body is **`On3PublisherDashboard`** only. **`/api/on3/all-time`** remains for lifetime aggregates elsewhere.
+- **Home UX** (**`mb-095`**, **`mb-096`**, **`mb-097`**): **`/`** uses **`useOn3Summary()`** (optional year); **`GET /api/on3/summary`** is **calendar YTD** vs same-span prior-year weeks; header shows **YTD** chip + range (no day-window pills). **`/api/on3/all-time`** remains for lifetime aggregates elsewhere.
 - **No Mula rev share in product** (**`mb-093`** supersedes **`mb-092`**): **`mula_rev` / Mula revenue is not read or exposed** in rollup metrics, **`GET /api/live`**, publisher APIs, or executive UI. Gross revenue and channel gross only; **`channelBreakdown`** removed from live JSON.
 - **Executive visual polish** (**`mb-094`**): **`DashboardSectionHeader`** (gradient accent bar); **`KpiHeroCard`** **`spotlight`** on CEO/CRO gross; CEO **Trailing 12 weeks** chart shell; Penske home KPIs use **cyan** section accent.
 

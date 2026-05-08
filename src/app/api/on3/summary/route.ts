@@ -5,9 +5,6 @@ import { normalizePublisherName, slugifyPublisherName } from "@/lib/publishers";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_DAYS = new Set([7, 22, 30]);
-const DEFAULT_DAYS = 22;
-
 const require = createRequire(import.meta.url);
 
 const { validateConfig, config } = require("../../../../lib/rollupServer/config.js") as {
@@ -62,14 +59,20 @@ function ctrPercentFromInviews(clicks: number, inViews: number): number {
   return (clicks / inViews) * 100;
 }
 
-function weekCountFromDays(days: number): number {
-  return Math.max(1, Math.ceil(days / 7));
-}
-
 function shortDateLabel(iso: string): string {
   const d = new Date(`${iso}T12:00:00Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+/** Inclusive span in days for weekly buckets: first week start through end of last week (+7). */
+function spanDaysForWeekKeys(keys: string[]): number {
+  if (keys.length === 0) return 1;
+  const first = new Date(`${keys[0]!}T12:00:00Z`).getTime();
+  const last = new Date(`${keys[keys.length - 1]!}T12:00:00Z`).getTime();
+  if (!Number.isFinite(first) || !Number.isFinite(last)) return Math.max(1, keys.length * 7);
+  const days = Math.round((last - first) / 86400000) + 7;
+  return Math.max(1, days);
 }
 
 type RowAgg = {
@@ -123,6 +126,11 @@ function ratioDelta(cur: number, prev: number): number | null {
   return (cur - prev) / prev;
 }
 
+function weeksInCalendarYear(sortedWeeks: string[], year: number): string[] {
+  const y = String(year);
+  return sortedWeeks.filter((w) => w.length >= 4 && w.slice(0, 4) === y);
+}
+
 export async function GET(req: Request) {
   const missing = validateConfig();
   if (missing.length) {
@@ -130,9 +138,12 @@ export async function GET(req: Request) {
   }
 
   const { searchParams } = new URL(req.url);
-  const daysRaw = Number(searchParams.get("days")?.trim());
-  const windowDays = ALLOWED_DAYS.has(daysRaw) ? daysRaw : DEFAULT_DAYS;
-  const windowWeeks = weekCountFromDays(windowDays);
+  const yearRaw = searchParams.get("year")?.trim();
+  let ytdYear = new Date().getUTCFullYear();
+  if (yearRaw && /^\d{4}$/.test(yearRaw)) {
+    ytdYear = Number(yearRaw);
+  }
+  const priorYear = ytdYear - 1;
 
   const tab = config.tabs.weekly;
   const { rows } = await getTabRows(tab.name, { headerRow: tab.headerRow });
@@ -160,8 +171,11 @@ export async function GET(req: Request) {
   const sortedWeeks = [...byWeek.keys()].sort((a, b) => a.localeCompare(b));
   if (sortedWeeks.length === 0) {
     return NextResponse.json({
-      windowDays,
-      windowWeeks,
+      mode: "ytd",
+      ytdYear,
+      priorYear,
+      windowDays: 0,
+      windowWeeks: 0,
       rangeLabel: "—",
       series: [],
       current: null,
@@ -172,8 +186,27 @@ export async function GET(req: Request) {
     });
   }
 
-  const currentKeys = sortedWeeks.slice(-windowWeeks);
-  const priorKeys = sortedWeeks.slice(-windowWeeks * 2, -windowWeeks);
+  const currentKeys = weeksInCalendarYear(sortedWeeks, ytdYear);
+  const weeksPriorYear = weeksInCalendarYear(sortedWeeks, priorYear);
+  const n = currentKeys.length;
+  const priorKeys = weeksPriorYear.slice(0, n);
+
+  if (currentKeys.length === 0) {
+    return NextResponse.json({
+      mode: "ytd",
+      ytdYear,
+      priorYear,
+      windowDays: 0,
+      windowWeeks: 0,
+      rangeLabel: `No ${ytdYear} weeks in rollup yet`,
+      series: [],
+      current: null,
+      prior: null,
+      deltas: null,
+      sites: [],
+      lastUpdated: new Date().toISOString(),
+    });
+  }
 
   const sumWeeks = (keys: string[]): RowAgg => {
     const out = emptyAgg();
@@ -195,12 +228,12 @@ export async function GET(req: Request) {
   const cur = rollUpMetrics(curAgg);
   const prev = rollUpMetrics(prevAgg);
 
-  const spanDays = Math.max(1, windowWeeks * 7);
+  const spanDays = spanDaysForWeekKeys(currentKeys);
   const dailyAvgRev = cur.totalRev / spanDays;
 
   const firstWeek = currentKeys[0]!;
   const lastWeek = currentKeys[currentKeys.length - 1]!;
-  const rangeLabel = `${shortDateLabel(firstWeek)} – ${shortDateLabel(lastWeek)}, ${lastWeek.slice(0, 4)}`;
+  const rangeLabel = `${shortDateLabel(firstWeek)} – ${shortDateLabel(lastWeek)} · ${ytdYear} YTD`;
 
   const series = currentKeys.map((wk) => {
     const a = byWeek.get(wk)!;
@@ -224,24 +257,21 @@ export async function GET(req: Request) {
     articleCtrPp: cur.articleCtr - prev.articleCtr,
   };
 
-  /** Sites: per-publisher totals in current window */
+  /** Sites: per-publisher totals in YTD window */
   const siteMap = new Map<string, RowAgg>();
   for (const wk of currentKeys) {
     const pm = byWeekPub.get(wk);
     if (!pm) continue;
     for (const [pub, a] of pm) {
       const acc = siteMap.get(pub) ?? emptyAgg();
-      siteMap.set(
-        pub,
-        {
-          totalRev: acc.totalRev + a.totalRev,
-          totalPVs: acc.totalPVs + a.totalPVs,
-          smartScrollViews: acc.smartScrollViews + a.smartScrollViews,
-          affiliateClicks: acc.affiliateClicks + a.affiliateClicks,
-          nextpageClicks: acc.nextpageClicks + a.nextpageClicks,
-          incrementalImpressions: acc.incrementalImpressions + a.incrementalImpressions,
-        }
-      );
+      siteMap.set(pub, {
+        totalRev: acc.totalRev + a.totalRev,
+        totalPVs: acc.totalPVs + a.totalPVs,
+        smartScrollViews: acc.smartScrollViews + a.smartScrollViews,
+        affiliateClicks: acc.affiliateClicks + a.affiliateClicks,
+        nextpageClicks: acc.nextpageClicks + a.nextpageClicks,
+        incrementalImpressions: acc.incrementalImpressions + a.incrementalImpressions,
+      });
     }
   }
 
@@ -262,8 +292,11 @@ export async function GET(req: Request) {
   return NextResponse.json({
     publisher: "All On3 sites",
     slug: "combined",
-    windowDays,
-    windowWeeks,
+    mode: "ytd",
+    ytdYear,
+    priorYear,
+    windowDays: spanDays,
+    windowWeeks: currentKeys.length,
     rangeLabel,
     series,
     current: {

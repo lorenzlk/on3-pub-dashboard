@@ -48,6 +48,9 @@ export type On3SummaryCurrent = {
 };
 
 export type On3SummaryPayload = {
+  mode?: "ytd";
+  ytdYear?: number;
+  priorYear?: number;
   windowDays: number;
   windowWeeks: number;
   rangeLabel: string;
@@ -60,28 +63,26 @@ export type On3SummaryPayload = {
   error?: string;
 };
 
-export const ON3_SUMMARY_WINDOWS = [7, 22, 30] as const;
-export type On3SummaryWindowDays = (typeof ON3_SUMMARY_WINDOWS)[number];
-
 export type On3SummaryController = {
-  days: On3SummaryWindowDays;
-  setDays: (d: On3SummaryWindowDays) => void;
   data: On3SummaryPayload | null;
   loading: boolean;
   error: string | null;
+  reload: () => void;
 };
 
-export function useOn3Summary(initialDays: On3SummaryWindowDays = 22): On3SummaryController {
-  const [days, setDays] = useState<On3SummaryWindowDays>(initialDays);
+const DELTA_SUFFIX = "vs prior YTD";
+
+export function useOn3Summary(year?: number): On3SummaryController {
   const [data, setData] = useState<On3SummaryPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (d: number) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`/api/on3/summary?days=${d}`, { cache: "no-store" });
+      const q = year != null && year >= 2000 && year <= 2100 ? `?year=${year}` : "";
+      const r = await fetch(`/api/on3/summary${q}`, { cache: "no-store" });
       const j = (await r.json()) as On3SummaryPayload & { error?: string };
       if (!r.ok) throw new Error(j.error || `Request failed (${r.status})`);
       setData(j);
@@ -91,31 +92,34 @@ export function useOn3Summary(initialDays: On3SummaryWindowDays = 22): On3Summar
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [year]);
 
   useEffect(() => {
-    void load(days);
-  }, [days, load]);
+    void load();
+  }, [load]);
 
-  return { days, setDays, data, loading, error };
+  return { data, loading, error, reload: load };
 }
 
 export function On3DashboardHeaderChrome({
-  days,
-  setDays,
   rangeLabel,
+  ytdYear,
   loading,
   hasData,
 }: {
-  days: On3SummaryWindowDays;
-  setDays: (d: On3SummaryWindowDays) => void;
   rangeLabel: string | null | undefined;
+  ytdYear: number | null | undefined;
   loading: boolean;
   hasData: boolean;
 }) {
   return (
     <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-4">
-      <div className="flex items-center justify-end gap-2 sm:justify-start">
+      <div className="flex flex-wrap items-center justify-end gap-2 sm:justify-start">
+        {ytdYear != null ? (
+          <span className="rounded-full border border-teal-400/80 bg-teal-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-300">
+            {ytdYear} YTD
+          </span>
+        ) : null}
         <p className="text-sm text-zinc-400 tabular-nums">
           {rangeLabel ? rangeLabel : loading && !hasData ? "Loading…" : "—"}
         </p>
@@ -125,23 +129,6 @@ export function On3DashboardHeaderChrome({
             aria-hidden
           />
         ) : null}
-      </div>
-      <div className="flex flex-wrap justify-end gap-2" role="group" aria-label="Reporting window">
-        {ON3_SUMMARY_WINDOWS.map((d) => (
-          <button
-            key={d}
-            type="button"
-            onClick={() => setDays(d)}
-            className={cn(
-              "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
-              days === d
-                ? "border-teal-400/80 bg-teal-500/10 text-teal-300"
-                : "border-zinc-700 bg-zinc-950/40 text-zinc-400 hover:border-zinc-600"
-            )}
-          >
-            {d}d
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -360,7 +347,7 @@ function formatPctRatio(r: number | null): string {
 
 function DeltaLine({
   ratio,
-  suffix = "vs prior period",
+  suffix = DELTA_SUFFIX,
   pp,
 }: {
   ratio?: number | null;
@@ -440,7 +427,11 @@ export function On3PublisherDashboard({
   }
 
   if (!cur) {
-    return <p className="py-8 text-center text-sm text-zinc-500">No rollup data for this window.</p>;
+    return (
+      <p className="py-8 text-center text-sm text-zinc-500">
+        {data?.rangeLabel?.startsWith("No ") ? data.rangeLabel : "No rollup data for year-to-date."}
+      </p>
+    );
   }
 
   const t = cur.totals;
@@ -559,7 +550,7 @@ export function On3PublisherDashboard({
               {sites.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
-                    No site rows in this window.
+                    No site rows for this YTD.
                   </td>
                 </tr>
               ) : (
